@@ -7,7 +7,11 @@ import com.example.distributedemo.model.Order;
 import com.example.distributedemo.model.OrderItem;
 import com.example.distributedemo.model.Product;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
@@ -42,15 +46,25 @@ public class OrderService {
     //购买商品数量
     private int purchaseProductNum = 1;
 
-    /**
-     *
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public Integer createOrder() throws Exception {
+    /* 手动事务 */
+    @Autowired
+    private PlatformTransactionManager platformTransactionManager;
+
+    /* 手动事务 */
+    @Autowired
+    private TransactionDefinition transactionDefinition;
+
+//    @Transactional(rollbackFor = Exception.class)
+    public synchronized Integer createOrder() throws Exception {
+
+        /* 开启 - 手动事务 */
+        TransactionStatus transactionStatus = platformTransactionManager.getTransaction(transactionDefinition);
 
         Product product = productMapper.selectByPrimaryKey(purchaseProductId);
 
         if (product == null) {
+            /* 手动事务回滚 */
+            platformTransactionManager.rollback(transactionStatus);
             throw new Exception("购买商品：" + purchaseProductId + "不存在");
         }
 
@@ -62,6 +76,8 @@ public class OrderService {
 
         // 校验库存 （购买数量 大于 商品数量）
         if (purchaseProductNum > currentCount) {
+            /* 手动事务回滚 */
+            platformTransactionManager.rollback(transactionStatus);
             throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
         }
         // 计算剩余库存
@@ -80,6 +96,10 @@ public class OrderService {
                 new Date(),
                 product.getId()
         );
+
+        // 检索商品的库存
+
+        // 如果商品库存为负数, 抛出异常
 
         /* =================计算库存结束================= */
 
@@ -107,6 +127,8 @@ public class OrderService {
                 .build()
         );
 
+        /* 手动事务提交 */
+        platformTransactionManager.commit(transactionStatus);
         return order.getId();
     }
 
