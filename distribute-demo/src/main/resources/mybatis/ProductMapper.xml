@@ -351,7 +351,7 @@
 
   <update id="updateProductCount">
     update product
-    set count = count - #{purchaseProductNum,jdbcType=INTEGER},
+    set count = count - #{purchaseProductNum,jdbcType=INTEGER},  <!-- 减去购买商品数量-->
     update_user = #{updateUser,jdbcType=VARCHAR},
     update_time = #{updateTime,jdbcType=TIME}
     where id = #{id,jdbcType=INTEGER}

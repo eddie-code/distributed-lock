@@ -7,18 +7,12 @@ import com.example.distributedemo.model.Order;
 import com.example.distributedemo.model.OrderItem;
 import com.example.distributedemo.model.Product;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.Date;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * @author eddie.lee
@@ -42,19 +36,11 @@ public class OrderService {
     @Resource
     private ProductMapper productMapper;
 
-    @Autowired
-    private PlatformTransactionManager platformTransactionManager;
-
-    @Autowired
-    private TransactionDefinition transactionDefinition;
-
     //购买商品id
     private int purchaseProductId = 100100;
 
     //购买商品数量
     private int purchaseProductNum = 1;
-
-    private Lock lock = new ReentrantLock();
 
     /**
      *
@@ -68,34 +54,40 @@ public class OrderService {
             throw new Exception("购买商品：" + purchaseProductId + "不存在");
         }
 
+        /* =================计算库存开始================= */
+
         // 商品当前库存
-        Integer count = product.getCount();
-        // 校验库存 （购买数量 小于 商品数量）
-        if (purchaseProductNum > count) {
-            throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + count + "]件, 无法购买");
+        Integer currentCount = product.getCount();
+        System.out.println(Thread.currentThread().getName() + "库存数：" + currentCount);
+
+        // 校验库存 （购买数量 大于 商品数量）
+        if (purchaseProductNum > currentCount) {
+            throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
         }
-//        // 计算剩余库存
-//        int leftCount = count - purchaseProductNum;
-//        // 更新库存
+        // 计算剩余库存
+//        int leftCount = currentCount - purchaseProductNum;
+        // 更新库存
 //        product.setCount(leftCount);
 //        product.setUpdateUser("xxx");
 //        product.setUpdateTime(new Date());
+//        Thread.sleep(3000);
+        // # timeout exceeded; try restarting transaction; nested exception is com.mysql.cj.jdbc.exceptions.MySQLTransactionRollbackException: Lock wait timeout exceeded; try restarting transaction
+//        productMapper.updateByPrimaryKeySelective(product);
 
+        // 不推荐代码扣减库存, 这里使用数据库去扣减, 数据库有行锁, 避免并发问题
         productMapper.updateProductCount(purchaseProductNum,
                 "xxx",
                 new Date(),
                 product.getId()
         );
 
-        // 检索商品的库存
-
-        // 如果商品库存为负数, 抛出异常
+        /* =================计算库存结束================= */
 
         Order order = Order.builder()
                 .orderAmount(product.getPrice().multiply(new BigDecimal(purchaseProductNum)))
                 .orderStatus(1)
                 .receiverName("xxx")
-                .receiverMobile("138001380000")
+                .receiverMobile("13800138000")
                 .createTime(new Date())
                 .createUser("xxx")
                 .updateTime(new Date())
@@ -110,8 +102,8 @@ public class OrderService {
                 .purchaseNum(purchaseProductNum)
                 .createUser("xxx")
                 .createTime(new Date())
-                .updateTime(new Date())
                 .updateUser("xxx")
+                .updateTime(new Date())
                 .build()
         );
 
