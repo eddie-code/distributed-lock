@@ -57,51 +57,49 @@ public class OrderService {
 //    @Transactional(rollbackFor = Exception.class)
     public synchronized Integer createOrder() throws Exception {
 
-        /* 开启 - 手动事务 */
-        TransactionStatus transactionStatus = platformTransactionManager.getTransaction(transactionDefinition);
+        Product product = null;
 
-        Product product = productMapper.selectByPrimaryKey(purchaseProductId);
+        // 对象锁
+        synchronized (this) {
+            /* 开启 - 手动事务 */
+            TransactionStatus transactionStatusSynchronized = platformTransactionManager.getTransaction(transactionDefinition);
 
-        if (product == null) {
-            /* 手动事务回滚 */
-            platformTransactionManager.rollback(transactionStatus);
-            throw new Exception("购买商品：" + purchaseProductId + "不存在");
+            product = productMapper.selectByPrimaryKey(purchaseProductId);
+
+            if (product == null) {
+                /* 手动事务回滚 */
+                platformTransactionManager.rollback(transactionStatusSynchronized);
+                throw new Exception("购买商品：" + purchaseProductId + "不存在");
+            }
+
+            /* =================计算库存开始================= */
+
+            // 商品当前库存
+            Integer currentCount = product.getCount();
+            System.out.println(Thread.currentThread().getName() + "库存数：" + currentCount);
+
+            // 校验库存 （购买数量 大于 商品数量）
+            if (purchaseProductNum > currentCount) {
+                /* 手动事务回滚 */
+                platformTransactionManager.rollback(transactionStatusSynchronized);
+                throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
+            }
+
+            productMapper.updateProductCount(purchaseProductNum,
+                    "xxx",
+                    new Date(),
+                    product.getId()
+            );
+            platformTransactionManager.commit(transactionStatusSynchronized);
         }
-
-        /* =================计算库存开始================= */
-
-        // 商品当前库存
-        Integer currentCount = product.getCount();
-        System.out.println(Thread.currentThread().getName() + "库存数：" + currentCount);
-
-        // 校验库存 （购买数量 大于 商品数量）
-        if (purchaseProductNum > currentCount) {
-            /* 手动事务回滚 */
-            platformTransactionManager.rollback(transactionStatus);
-            throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
-        }
-        // 计算剩余库存
-//        int leftCount = currentCount - purchaseProductNum;
-        // 更新库存
-//        product.setCount(leftCount);
-//        product.setUpdateUser("xxx");
-//        product.setUpdateTime(new Date());
-//        Thread.sleep(3000);
-        // # timeout exceeded; try restarting transaction; nested exception is com.mysql.cj.jdbc.exceptions.MySQLTransactionRollbackException: Lock wait timeout exceeded; try restarting transaction
-//        productMapper.updateByPrimaryKeySelective(product);
-
-        // 不推荐代码扣减库存, 这里使用数据库去扣减, 数据库有行锁, 避免并发问题
-        productMapper.updateProductCount(purchaseProductNum,
-                "xxx",
-                new Date(),
-                product.getId()
-        );
-
         // 检索商品的库存
 
         // 如果商品库存为负数, 抛出异常
 
         /* =================计算库存结束================= */
+
+        /* 开启 - 手动事务 */
+        TransactionStatus transactionStatus = platformTransactionManager.getTransaction(transactionDefinition);
 
         Order order = Order.builder()
                 .orderAmount(product.getPrice().multiply(new BigDecimal(purchaseProductNum)))

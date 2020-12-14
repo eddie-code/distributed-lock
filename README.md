@@ -294,6 +294,137 @@ java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
 	at java.lang.Thread.run(Thread.java:748)
 ```
 
+> 测试后数据需要更改回来: "UPDATE `distribute`.`product` SET `count` = 1 WHERE `id` = 100100"
 
+</details>
+
+
+#### Synchronized 块锁：
+
+<details>
+<summary>手动事务</summary>
+
+com.example.distributedemo.service.OrderService.createOrder
+```java
+    /* 手动事务 */
+    @Autowired
+    private PlatformTransactionManager platformTransactionManager;
+
+    /* 手动事务 */
+    @Autowired
+    private TransactionDefinition transactionDefinition;
+
+//    @Transactional(rollbackFor = Exception.class)
+    public synchronized Integer createOrder() throws Exception {
+
+        Product product = null;
+
+        // 对象锁
+        synchronized (this) {
+            /* 开启 - 手动事务 */
+            TransactionStatus transactionStatusSynchronized = platformTransactionManager.getTransaction(transactionDefinition);
+
+            product = productMapper.selectByPrimaryKey(purchaseProductId);
+
+            if (product == null) {
+                /* 手动事务回滚 */
+                platformTransactionManager.rollback(transactionStatusSynchronized);
+                throw new Exception("购买商品：" + purchaseProductId + "不存在");
+            }
+
+            /* =================计算库存开始================= */
+
+            // 商品当前库存
+            Integer currentCount = product.getCount();
+            System.out.println(Thread.currentThread().getName() + "库存数：" + currentCount);
+
+            // 校验库存 （购买数量 大于 商品数量）
+            if (purchaseProductNum > currentCount) {
+                /* 手动事务回滚 */
+                platformTransactionManager.rollback(transactionStatusSynchronized);
+                throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
+            }
+
+            productMapper.updateProductCount(purchaseProductNum,
+                    "xxx",
+                    new Date(),
+                    product.getId()
+            );
+            platformTransactionManager.commit(transactionStatusSynchronized);
+        }
+        // 检索商品的库存
+
+        // 如果商品库存为负数, 抛出异常
+
+        /* =================计算库存结束================= */
+
+        /* 开启 - 手动事务 */
+        TransactionStatus transactionStatus = platformTransactionManager.getTransaction(transactionDefinition);
+
+        Order order = Order.builder()
+                .orderAmount(product.getPrice().multiply(new BigDecimal(purchaseProductNum)))
+                .orderStatus(1)
+                .receiverName("xxx")
+                .receiverMobile("13800138000")
+                .createTime(new Date())
+                .createUser("xxx")
+                .updateTime(new Date())
+                .updateUser("xxx")
+                .build();
+        orderMapper.insertSelective(order);
+
+        orderItemMapper.insertSelective(OrderItem.builder()
+                .orderId(order.getId())
+                .productId(product.getId())
+                .productPrice(product.getPrice())
+                .purchaseNum(purchaseProductNum)
+                .createUser("xxx")
+                .createTime(new Date())
+                .updateUser("xxx")
+                .updateTime(new Date())
+                .build()
+        );
+
+        /* 手动事务提交 */
+        platformTransactionManager.commit(transactionStatus);
+        return order.getId();
+    }
+```
+
+打印结果：
+```properties
+pool-1-thread-1库存数：1
+订单ID：[18]
+pool-1-thread-2库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:85)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+pool-1-thread-5库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:85)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+pool-1-thread-4库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:85)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+pool-1-thread-3库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:85)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+```
+
+> 测试后数据需要更改回来: "UPDATE `distribute`.`product` SET `count` = 1 WHERE `id` = 100100"
 
 </details>
