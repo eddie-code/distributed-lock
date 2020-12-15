@@ -579,3 +579,129 @@ java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
 > 测试后数据需要更改回来: "UPDATE `distribute`.`product` SET `count` = 1 WHERE `id` = 100100"
 
 </details>
+
+## distribute-lock （分布式锁）
+
+### 单体应用锁存在的问题
+- 单体应用拿到锁, 其余线程可以继续等待完成, 获取锁.
+- 若一个A服务, 通过Nginx转发部署多个A服务情况下, 锁该如何分配？
+
+#### 演示代码
+
+<details>
+<summary>点击查看</summary>
+
+1. 创建新项目 distribute-lock
+1. 添加依赖
+1. 创建DemoController类
+1. 使用POSTMAN测试单体应用“锁”情况
+1. 使用IDEA模拟多服务启动“锁”情况 (会发现不同服务, 使用自己的线程. 没有达到分布式锁)
+
+```java
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.1.7.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>distribute-lock</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>distribute-lock</name>
+    <description>Demo project for Spring Boot</description>
+
+    <properties>
+        <java.version>1.8</java.version>
+    </properties>
+
+    <dependencies>
+<!--        <dependency>-->
+<!--            <groupId>org.springframework.boot</groupId>-->
+<!--            <artifactId>spring-boot-starter-data-jpa</artifactId>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>org.springframework.boot</groupId>-->
+<!--            <artifactId>spring-boot-starter-data-redis</artifactId>-->
+<!--        </dependency>-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>org.mybatis.spring.boot</groupId>-->
+<!--            <artifactId>mybatis-spring-boot-starter</artifactId>-->
+<!--            <version>2.1.0</version>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>mysql</groupId>-->
+<!--            <artifactId>mysql-connector-java</artifactId>-->
+<!--            <scope>runtime</scope>-->
+<!--        </dependency>-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>org.mybatis.generator</groupId>-->
+<!--                <artifactId>mybatis-generator-maven-plugin</artifactId>-->
+<!--                <version>1.3.7</version>-->
+<!--                <dependencies>-->
+<!--                    <dependency>-->
+<!--                        <groupId>mysql</groupId>-->
+<!--                        <artifactId>mysql-connector-java</artifactId>-->
+<!--                        <version>8.0.17</version>-->
+<!--                    </dependency>-->
+<!--                </dependencies>-->
+<!--            </plugin>-->
+        </plugins>
+    </build>
+
+</project>
+```
+
+```java
+@Slf4j
+@RestController
+public class DemoController {
+
+    private Lock lock = new ReentrantLock();
+
+    @RequestMapping("singleLock")
+    public String singleLock() {
+        log.info("Entry method");
+        lock.lock();
+        try {
+            log.info("Access lock");
+            Thread.sleep(60000);
+            System.out.println("线程名：" + Thread.currentThread().getName());
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+        return "success";
+    }
+}
+```
+
+> IDEA模拟多应用启动:  右上“Edit Configurations” 复制多个Spring Boot的启动 “Program arguments: --server.port=8081”
+
+</details>
