@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * @author eddie.lee
@@ -54,53 +56,53 @@ public class OrderService {
     @Autowired
     private TransactionDefinition transactionDefinition;
 
+    /* Java并发包的类 */
+    private Lock lock = new ReentrantLock();
+
 //    @Transactional(rollbackFor = Exception.class)
-    public synchronized Integer createOrder() throws Exception {
+    public Integer createOrder() throws Exception {
 
         Product product = null;
 
-        // 对象锁
-        synchronized (this) {
+        lock.lock();
+
+        try {
             /* 开启 - 手动事务 */
             TransactionStatus transactionStatusSynchronized = platformTransactionManager.getTransaction(transactionDefinition);
-
             product = productMapper.selectByPrimaryKey(purchaseProductId);
-
             if (product == null) {
                 /* 手动事务回滚 */
                 platformTransactionManager.rollback(transactionStatusSynchronized);
                 throw new Exception("购买商品：" + purchaseProductId + "不存在");
             }
-
             /* =================计算库存开始================= */
-
             // 商品当前库存
             Integer currentCount = product.getCount();
             System.out.println(Thread.currentThread().getName() + "库存数：" + currentCount);
-
             // 校验库存 （购买数量 大于 商品数量）
             if (purchaseProductNum > currentCount) {
                 /* 手动事务回滚 */
                 platformTransactionManager.rollback(transactionStatusSynchronized);
                 throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
             }
-
             productMapper.updateProductCount(purchaseProductNum,
                     "xxx",
                     new Date(),
                     product.getId()
             );
             platformTransactionManager.commit(transactionStatusSynchronized);
+        }finally {
+            // 不管是否抛出异常, 都必需要释放锁
+            lock.unlock();
         }
-        // 检索商品的库存
 
+        // 检索商品的库存
         // 如果商品库存为负数, 抛出异常
 
         /* =================计算库存结束================= */
 
         /* 开启 - 手动事务 */
         TransactionStatus transactionStatus = platformTransactionManager.getTransaction(transactionDefinition);
-
         Order order = Order.builder()
                 .orderAmount(product.getPrice().multiply(new BigDecimal(purchaseProductNum)))
                 .orderStatus(1)
@@ -124,7 +126,6 @@ public class OrderService {
                 .updateTime(new Date())
                 .build()
         );
-
         /* 手动事务提交 */
         platformTransactionManager.commit(transactionStatus);
         return order.getId();

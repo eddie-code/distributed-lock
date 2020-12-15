@@ -2,7 +2,7 @@
 
 # distributed-lock
 
-## distribute-demo
+## distribute-demo （单体项目）
 
 ### 模拟一
 - 描述：问题出现的原因：假设有两个事务A和事务B,他们两个都存在update 同一条记录，A 先修改，但是没有提交事务，B也想修改但是一直等，直到等到了超过了innodb_lock_wait_timeout所设置的时间，就会爆出此异常
@@ -81,7 +81,7 @@ src/main/resources/mybatis/ProductMapper.xml
 - 确保库存不会扣成负数
 - 使用Java原始锁, Synchronized解决
 
-#### Synchronized 方法锁：
+#### Synchronized 方法锁
 
 <details>
 <summary>Spring事务</summary>
@@ -299,7 +299,7 @@ java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
 </details>
 
 
-#### Synchronized 块锁：
+#### Synchronized 块锁
 
 <details>
 <summary>手动事务</summary>
@@ -423,6 +423,157 @@ java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
 	at java.lang.Thread.run(Thread.java:748)
+```
+
+> 测试后数据需要更改回来: "UPDATE `distribute`.`product` SET `count` = 1 WHERE `id` = 100100"
+
+</details>
+
+
+#### ReentrantLock锁 （并发包中的锁）
+
+<details>
+<summary>ReentrantLock锁+手动事务</summary>
+
+com.example.distributedemo.service.OrderService.createOrder
+```java
+@Slf4j
+@Service
+public class OrderService {
+
+    @Resource
+    private OrderMapper orderMapper;
+
+    @Resource
+    private OrderItemMapper orderItemMapper;
+
+    @Resource
+    private ProductMapper productMapper;
+
+    //购买商品id
+    private int purchaseProductId = 100100;
+
+    //购买商品数量
+    private int purchaseProductNum = 1;
+
+    /* 手动事务 */
+    @Autowired
+    private PlatformTransactionManager platformTransactionManager;
+
+    /* 手动事务 */
+    @Autowired
+    private TransactionDefinition transactionDefinition;
+
+    /* Java并发包的类 */
+    private Lock lock = new ReentrantLock();
+
+//    @Transactional(rollbackFor = Exception.class)
+    public Integer createOrder() throws Exception {
+
+        Product product = null;
+
+        lock.lock();
+
+        try {
+            /* 开启 - 手动事务 */
+            TransactionStatus transactionStatusSynchronized = platformTransactionManager.getTransaction(transactionDefinition);
+            product = productMapper.selectByPrimaryKey(purchaseProductId);
+            if (product == null) {
+                /* 手动事务回滚 */
+                platformTransactionManager.rollback(transactionStatusSynchronized);
+                throw new Exception("购买商品：" + purchaseProductId + "不存在");
+            }
+            /* =================计算库存开始================= */
+            // 商品当前库存
+            Integer currentCount = product.getCount();
+            System.out.println(Thread.currentThread().getName() + "库存数：" + currentCount);
+            // 校验库存 （购买数量 大于 商品数量）
+            if (purchaseProductNum > currentCount) {
+                /* 手动事务回滚 */
+                platformTransactionManager.rollback(transactionStatusSynchronized);
+                throw new Exception("商品[" + purchaseProductId + "]仅剩余[" + currentCount + "]件, 无法购买");
+            }
+            productMapper.updateProductCount(purchaseProductNum,
+                    "xxx",
+                    new Date(),
+                    product.getId()
+            );
+            platformTransactionManager.commit(transactionStatusSynchronized);
+        }finally {
+            // 不管是否抛出异常, 都必需要释放锁
+            lock.unlock();
+        }
+
+        // 检索商品的库存
+        // 如果商品库存为负数, 抛出异常
+
+        /* =================计算库存结束================= */
+
+        /* 开启 - 手动事务 */
+        TransactionStatus transactionStatus = platformTransactionManager.getTransaction(transactionDefinition);
+        Order order = Order.builder()
+                .orderAmount(product.getPrice().multiply(new BigDecimal(purchaseProductNum)))
+                .orderStatus(1)
+                .receiverName("xxx")
+                .receiverMobile("13800138000")
+                .createTime(new Date())
+                .createUser("xxx")
+                .updateTime(new Date())
+                .updateUser("xxx")
+                .build();
+        orderMapper.insertSelective(order);
+
+        orderItemMapper.insertSelective(OrderItem.builder()
+                .orderId(order.getId())
+                .productId(product.getId())
+                .productPrice(product.getPrice())
+                .purchaseNum(purchaseProductNum)
+                .createUser("xxx")
+                .createTime(new Date())
+                .updateUser("xxx")
+                .updateTime(new Date())
+                .build()
+        );
+        /* 手动事务提交 */
+        platformTransactionManager.commit(transactionStatus);
+        return order.getId();
+    }
+}
+```
+
+打印结果：
+```properties
+pool-1-thread-3库存数：1
+pool-1-thread-4库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:91)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+pool-1-thread-5库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:91)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+pool-1-thread-1库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:91)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+pool-1-thread-2库存数：0
+java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
+	at com.example.distributedemo.service.OrderService.createOrder(OrderService.java:91)
+	at com.example.distributedemo.service.OrderServiceTests.lambda$testConcurrentOrder$0(OrderServiceTests.java:47)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+订单ID：[19]
+
 ```
 
 > 测试后数据需要更改回来: "UPDATE `distribute`.`product` SET `count` = 1 WHERE `id` = 100100"
