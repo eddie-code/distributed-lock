@@ -1,18 +1,12 @@
 package com.example.distributelock.controller;
 
+import com.example.distributelock.lock.RedisLock;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.connection.RedisStringCommands;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.UUID;
 
 /**
  * @author eddie.lee
@@ -35,50 +29,31 @@ public class RedisController {
     @RequestMapping("redisLock")
     public String redisLock() {
         log.info("进入方法");
-        String key = "eddieKey";
-        String value = UUID.randomUUID().toString();
 
-        RedisCallback<Boolean> redisCallback = connection -> {
-            // 设置NX
-            RedisStringCommands.SetOption setOption = RedisStringCommands.SetOption.ifAbsent();
-            // 设置过期时间
-            Expiration expiration = Expiration.seconds(30);
+        // 传统写法
+//        RedisLock redisLock = new RedisLock(redisTemplate, "eddieKey",30);
+//        if (redisLock.getLock()) {
+//            log.info("抢到锁了!");
+//            try {
+//                // 15s
+//                Thread.sleep(15000);
+//            } catch (InterruptedException e) {
+//                e.printStackTrace();
+//            } finally {
+//                // **** implements AutoCloseable 就不需要finally 来释放锁****
+//                boolean result = redisLock.unLock();
+//                log.info("释放锁结果：[{}]", result);
+//            }
+//        }
 
-            // 序列化 key value
-            byte[] eddieKey = redisTemplate.getKeySerializer().serialize(key);
-            byte[] redisValue = redisTemplate.getKeySerializer().serialize(value);
-
-            // 执行 setnx 操作
-            assert eddieKey != null;
-            assert redisValue != null;
-            return connection.set(eddieKey, redisValue, expiration, setOption);
-        };
-
-        // 获取分布式锁
-        Boolean b = (Boolean) redisTemplate.execute(redisCallback);
-        if (b) {
-            log.info("抢到锁了!");
-            try {
-                // 15s
+        // jdk1.7之后添加的写法 try后面加入
+        try (RedisLock redisLock = new RedisLock(redisTemplate, "eddieKey", 30)) {
+            if (redisLock.getLock()) {
+                log.info("抢到锁了!");
                 Thread.sleep(15000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            } finally {
-                // lua脚本
-                String luaScript = "if redis.call(\"get\",KEYS[1]) == ARGV[1] then\n" +
-                        "    return redis.call(\"del\",KEYS[1])\n" +
-                        "else\n" +
-                        "    return 0\n" +
-                        "end";
-                RedisScript<Boolean> redisScript = RedisScript.of(luaScript, Boolean.class);
-
-                List<String> keys = Arrays.asList(key);
-
-                Boolean result = (Boolean) redisTemplate.execute(redisScript, keys, value);
-
-                log.info("释放锁结果：[{}]", result);
-
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
         log.info("success");

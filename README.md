@@ -1016,4 +1016,255 @@ http://localhost:8081/redisLock
 
 > 8080 和 8081 同时请求, 然后一个打印抢到锁, 另外一个没有打印就成功, 因为8080拿到锁后没有过期, 而8080锁释放了, 8081就直接成功
 
+
+<br><br>
+
+**《代码简化》**
+
+com.example.distributelock.lock.RedisLock
+```java
+package com.example.distributelock.lock;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.data.redis.core.types.Expiration;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributelock.lock
+ * @ClassName RedisLock
+ * @description
+ * @date created in 2020-12-16 15:40
+ * @modified by
+ */
+@Slf4j
+public class RedisLock implements AutoCloseable {
+
+    private RedisTemplate redisTemplate;
+
+    /**
+     * redis键
+     */
+    private String key;
+
+    /**
+     * redis值
+     */
+    private String value;
+
+    /**
+     * 单位：秒
+     */
+    private int expireTime;
+
+    public RedisLock(RedisTemplate redisTemplate, String key, int expireTime) {
+        this.key = key;
+        this.expireTime = expireTime;
+        this.redisTemplate = redisTemplate;
+        // 可以传入, 也可以自己生成
+        this.value = UUID.randomUUID().toString();
+    }
+
+    /**
+     * 获取分布式锁
+     */
+    public boolean getLock() {
+        RedisCallback<Boolean> redisCallback = connection -> {
+            // 设置NX
+            RedisStringCommands.SetOption setOption = RedisStringCommands.SetOption.ifAbsent();
+            // 设置过期时间
+            Expiration expiration = Expiration.seconds(expireTime);
+
+            // 序列化 key value
+            byte[] eddieKey = redisTemplate.getKeySerializer().serialize(key);
+            byte[] redisValue = redisTemplate.getKeySerializer().serialize(value);
+
+            // 执行 setnx 操作
+            assert eddieKey != null;
+            assert redisValue != null;
+            return connection.set(eddieKey, redisValue, expiration, setOption);
+        };
+        // 获取分布式锁
+        return (boolean) redisTemplate.execute(redisCallback);
+    }
+
+    /**
+     * 释放分布式锁
+     */
+    public boolean unLock() {
+        // lua脚本
+        String luaScript = "if redis.call(\"get\",KEYS[1]) == ARGV[1] then\n" +
+                "    return redis.call(\"del\",KEYS[1])\n" +
+                "else\n" +
+                "    return 0\n" +
+                "end";
+        RedisScript<Boolean> redisScript = RedisScript.of(luaScript, Boolean.class);
+        List<String> keys = Arrays.asList(key);
+        Boolean result = (Boolean) redisTemplate.execute(redisScript, keys, value);
+        log.info("释放锁结果：[{}]", result);
+        return result;
+
+    }
+
+    /**
+     * jdk1.7 出的特性
+     */
+    @Override
+    public void close() throws Exception {
+        unLock();
+    }
+}
+```
+
+
+com.example.distributelock.controller.RedisController
+```java
+package com.example.distributelock.controller;
+
+import com.example.distributelock.lock.RedisLock;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributelock.controller
+ * @ClassName RedisController
+ * @description setNX，是set if not exists 的缩写，
+ *              也就是只有不存在的时候才设置, 设置成功时返回 1 ， 设置失败时返回 0 。
+ *              可以利用它来实现锁的效果，但是很多人在使用的过程中都有一些问题没有考虑到。
+ * @date created in 2020-12-16 11:37
+ * @modified by
+ */
+@Slf4j
+@RestController
+public class RedisController {
+
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    @RequestMapping("redisLock")
+    public String redisLock() {
+        log.info("进入方法");
+
+        // 传统写法
+//        RedisLock redisLock = new RedisLock(redisTemplate, "eddieKey",30);
+//        if (redisLock.getLock()) {
+//            log.info("抢到锁了!");
+//            try {
+//                // 15s
+//                Thread.sleep(15000);
+//            } catch (InterruptedException e) {
+//                e.printStackTrace();
+//            } finally {
+//                // **** implements AutoCloseable 就不需要finally 来释放锁****
+//                boolean result = redisLock.unLock();
+//                log.info("释放锁结果：[{}]", result);
+//            }
+//        }
+
+        // jdk1.7之后添加的写法 try后面加入
+        try (RedisLock redisLock = new RedisLock(redisTemplate, "eddieKey", 30)) {
+            if (redisLock.getLock()) {
+                log.info("抢到锁了!");
+                Thread.sleep(15000);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        log.info("success");
+        return "success";
+    }
+}
+```
+
+<br><br>
+
+**《模拟分布式服务发送短信场景》**
+
+- 模拟负载均衡下多台服务器, 定时发送短信给用户
+    - 如何解决多台服务器同时发送短信呢?
+
+按照上面代码继续模拟场景
+
+com.example.distributelock.Application
+```java
+@EnableScheduling
+```
+
+com.example.distributelock.service.SchedulerService.sendSms
+```java
+package com.example.distributelock.service;
+
+import com.example.distributelock.lock.RedisLock;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributelock.service
+ * @ClassName SchedulerService
+ * @description
+ * @date created in 2020-12-16 16:14
+ * @modified by
+ */
+@Slf4j
+@Service
+public class SchedulerService {
+
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    /**
+     * 使用redis.setnx实现分布式锁：
+     *      每5秒发送短信给 13800138000
+     */
+    @Scheduled(cron = "0/5 * * * * ?")
+    public void sendSms() {
+        try (RedisLock redisLock = new RedisLock(redisTemplate, "smsKey", 30)) {
+            if (redisLock.getLock()) {
+                log.info("向 13800138000 发送一条趣味短信! ");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+8080
+```properties
+16:23:55  INFO 18200 --- [   scheduling-1] c.e.d.service.SchedulerService           : 向 13800138000 发送一条趣味短信! 
+16:23:55  INFO 18200 --- [   scheduling-1] c.example.distributelock.lock.RedisLock  : 释放锁结果：[true]
+16:24:00  INFO 18200 --- [   scheduling-1] c.example.distributelock.lock.RedisLock  : 释放锁结果：[false]
+16:24:05  INFO 18200 --- [   scheduling-1] c.example.distributelock.lock.RedisLock  : 释放锁结果：[false]
+```
+
+8081
+```properties
+16:24:00  INFO 20828 --- [   scheduling-1] c.e.d.service.SchedulerService           : 向 13800138000 发送一条趣味短信! 
+16:24:00  INFO 20828 --- [   scheduling-1] c.example.distributelock.lock.RedisLock  : 释放锁结果：[true]
+16:24:05  INFO 20828 --- [   scheduling-1] c.e.d.service.SchedulerService           : 向 13800138000 发送一条趣味短信! 
+16:24:05  INFO 20828 --- [   scheduling-1] c.example.distributelock.lock.RedisLock  : 释放锁结果：[true]
+```
+
+> 释放锁结果：[false] 就是没有抢到锁
+
 </details>
