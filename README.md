@@ -705,3 +705,128 @@ public class DemoController {
 > IDEA模拟多应用启动:  右上“Edit Configurations” 复制多个Spring Boot的启动 “Program arguments: --server.port=8081”
 
 </details>
+
+### 数据库实现分布式锁 (悲观锁)
+
+- 多个进程、多个线程访问共同组建数据库
+- 通过 <font color="red">select ... from update</font> 访问同一条数据
+- <font color="red">for update</font> 锁定数据, 其他线程只能等待
+
+#### Navicat演示效果
+
+建表
+```sql
+CREATE TABLE `distribute_lock` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `business_code` varchar(255) NOT NULL COMMENT '区分不同业务使用的锁',
+  `business_name` varchar(255) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+插入测试数据
+```sql
+INSERT INTO `distribute`.`distribute_lock`(`business_code`, `business_name`) VALUES ('demo', 'demo演示')
+```
+
+分别在 Navicat for mysql 工具, 打开两个会话(查询), 设置会话不自动提交
+```sql
+select @@autocommit;
+
+set @@autocommit=0;
+```
+
+在两个会话分别运行, 会发现后运行的会话窗口, 是查询不了数据出来的 (锁住了)
+```sql
+SELECT * FROM distribute_lock WHERE business_code = 'demo' FOR UPDATE;
+```
+
+需然在第一个会话窗口进行提交，才能解锁
+```sql
+COMMIT;
+```
+
+#### 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+
+1. tk-mybatis生成代码
+1. application.yml 配置db
+1. DistributeLockMapper 编写db操作方法
+1. DistributeLockMapper.xml 编写sql
+
+com.example.distributelock.dao.DistributeLockMapper
+```java
+DistributeLock selectDistributeLock(@Param("businessCode") String businessCode);
+```
+
+src/main/resources/mybatis/DistributeLockMapper.xml 使用 FOR UPDATE
+```xml
+<select id="selectDistributeLock" resultMap="BaseResultMap">
+    SELECT * FROM distribute_lock
+    WHERE business_code = #{businessCode,jdbcType=VARCHAR}
+    FOR UPDATE
+</select>
+```
+
+com.example.distributelock.controller.DemoController.singleLock
+```java
+@RequestMapping("singleLock")
+@Transactional(rollbackFor = Exception.class)
+public String singleLock() throws Exception {
+    log.info("Entry method");
+    // 检索demo的锁
+    DistributeLock distributeLock = distributeLockMapper.selectDistributeLock("demo");
+    if (distributeLock == null) {
+        throw new Exception("分布式锁找不到");
+    }
+    log.info("Access lock");
+    try {
+        Thread.sleep(20000);
+        System.out.println("时间：" + LocalDateTime.now() + " 线程名：" + Thread.currentThread().getName());
+    } catch (InterruptedException e) {
+        e.printStackTrace();
+    }
+    return "success";
+}
+```
+
+> IDEA模拟多应用启动:  右上“Edit Configurations” 复制多个Spring Boot的启动 “Program arguments: --server.port=8081”
+
+PostMan分别GET请求：
+- http://localhost:8080/singleLock
+- http://localhost:8081/singleLock
+
+distribute-lock :8080/
+```properties
+17:15:31  INFO 23104 --- [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+17:15:31  INFO 23104 --- [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+17:15:31  INFO 23104 --- [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 8 ms
+17:15:31  INFO 23104 --- [nio-8080-exec-1] c.e.d.controller.DemoController          : Entry method
+17:15:31  INFO 23104 --- [nio-8080-exec-1] c.e.d.controller.DemoController          : Access lock
+时间：2020-12-15T17:15:51.447 线程名：http-nio-8080-exec-1
+```
+
+distribute-lock-8081 :8081/
+```properties
+17:15:32  INFO 18500 --- [nio-8081-exec-2] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+17:15:32  INFO 18500 --- [nio-8081-exec-2] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+17:15:32  INFO 18500 --- [nio-8081-exec-2] o.s.web.servlet.DispatcherServlet        : Completed initialization in 8 ms
+17:15:32  INFO 18500 --- [nio-8081-exec-2] c.e.d.controller.DemoController          : Entry method
+17:15:51  INFO 18500 --- [nio-8081-exec-2] c.e.d.controller.DemoController          : Access lock
+时间：2020-12-15T17:16:11.460 线程名：http-nio-8081-exec-2
+```
+
+> 从时间可以看出, 8080 释放锁后,  8081才拿到锁, 线程等待.
+
+<br>
+
+**总结：**
+- 优点：简单方便、易于理解、易于操作
+- 缺点：并发量大时, 对数据库存在一定压力
+- 建议：作为锁的数据库与业务数据库分开
+
+</details>

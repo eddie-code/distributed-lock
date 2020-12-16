@@ -1,0 +1,12 @@
+logging:
+  pattern:
+    dateformat: HH:mm:ss
+#  level:
+#    com.example.distributedemo.dao: debug
+mybatis:
+  mapper-locations: /mybatis/*.xml
+spring:
+  datasource:
+    password: 123456
+    username: root
+    url: jdbc:mysql://192.168.8.100:61337/distribute?serverTimezone=Asia/Shanghai&useSSL=false
