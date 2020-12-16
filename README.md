@@ -830,3 +830,190 @@ distribute-lock-8081 :8081/
 - 建议：作为锁的数据库与业务数据库分开
 
 </details>
+
+
+### 基于Redis的Setnx实现分布式锁
+
+#### 实现原理
+- 获取锁的Redis命令
+- SET resource_name my_random_value NX PX 30000
+    - resource_name: 资源名称, 可根据不同的业务区分不同的锁
+    - my_random_value：随机值, 每个线程的随机值都不同, 用于释放锁时的校验
+    - NX：key不存在时设置成功, key存在则设置不成功
+    - PX：自动失效时间, 出现异常情况, 锁可以过期失效
+- 利用NX的原子性, 多个线程并发时, 只有一个线程可以设置成功
+- 设置成功即获得锁, 可以执行后续的业务处理
+- 如果出现异常, 过了锁的有效期, 锁自动释放
+- 释放锁采用Redis的delete命令
+- 释放锁时效验之前设置的随机数, 相同才能释放
+- 释放锁的LUA脚本
+
+##### LUA脚本
+```shell script
+if redis.call("get",KEYS[1]) == ARGV[1] then
+    return redis.call("del",KEYS[1])
+else
+    return 0
+end
+```
+
+##### 原理图解
+
+```properties
+
+A获得锁  A执行任务  锁过期                       A释放了B的锁
+-------------------------------------------------------------------->
+                            B获得锁  B处理业务
+```
+
+[参考：正确地使用Redis的SETNX实现锁机制](https://www.cnblogs.com/zh718594493/p/12111417.html)
+
+#### 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+
+- 根据上述原理, 编写Redis分布式锁
+- 定时任务集群部署, 任务重覆执行?
+- 利用分布式锁解决重复执行的问题
+
+pom.xml
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+```
+
+application.yml
+```yaml
+logging:
+  pattern:
+    dateformat: HH:mm:ss
+#  level:
+#    com.example.distributedemo.dao: debug
+mybatis:
+  mapper-locations: /mybatis/*.xml
+spring:
+  datasource:
+    password: 123456
+    username: root
+    url: jdbc:mysql://192.168.8.100:61337/distribute?serverTimezone=Asia/Shanghai&useSSL=false
+  redis:
+    host: 192.168.8.100
+    port: 6379
+```
+
+com.example.distributelock.controller.RedisController.redisLock
+```java
+package com.example.distributelock.controller;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.data.redis.core.types.Expiration;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributelock.controller
+ * @ClassName RedisController
+ * @description setNX，是set if not exists 的缩写，
+                也就是只有不存在的时候才设置, 设置成功时返回 1 ， 设置失败时返回 0 。
+                可以利用它来实现锁的效果，但是很多人在使用的过程中都有一些问题没有考虑到。
+ * @date created in 2020-12-16 11:37
+ * @modified by
+ */
+@Slf4j
+@RestController
+public class RedisController {
+
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    @RequestMapping("redisLock")
+    public String redisLock() {
+        log.info("进入方法");
+        String key = "eddieKey";
+        String value = UUID.randomUUID().toString();
+
+        RedisCallback<Boolean> redisCallback = connection -> {
+            // 设置NX
+            RedisStringCommands.SetOption setOption = RedisStringCommands.SetOption.ifAbsent();
+            // 设置过期时间
+            Expiration expiration = Expiration.seconds(30);
+
+            // 序列化 key value
+            byte[] eddieKey = redisTemplate.getKeySerializer().serialize(key);
+            byte[] redisValue = redisTemplate.getKeySerializer().serialize(value);
+
+            // 执行 setnx 操作
+            assert eddieKey != null;
+            assert redisValue != null;
+            return connection.set(eddieKey, redisValue, expiration, setOption);
+        };
+
+        // 获取分布式锁
+        Boolean b = (Boolean) redisTemplate.execute(redisCallback);
+        if (b) {
+            log.info("抢到锁了!");
+            try {
+                // 15s
+                Thread.sleep(15000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } finally {
+                // lua脚本
+                String luaScript = "if redis.call(\"get\",KEYS[1]) == ARGV[1] then\n" +
+                        "    return redis.call(\"del\",KEYS[1])\n" +
+                        "else\n" +
+                        "    return 0\n" +
+                        "end";
+                RedisScript<Boolean> redisScript = RedisScript.of(luaScript, Boolean.class);
+
+                List<String> keys = Arrays.asList(key);
+
+                Boolean result = (Boolean) redisTemplate.execute(redisScript, keys, value);
+
+                log.info("释放锁结果：[{}]", result);
+
+            }
+        }
+
+        log.info("success");
+        return "success";
+    }
+
+}
+```
+
+PostMan同时请求：
+
+http://localhost:8080/redisLock
+```properties
+14:28:54  INFO 21016 --- [nio-8080-exec-5] c.e.d.controller.RedisController         : 进入方法
+14:28:54  INFO 21016 --- [nio-8080-exec-5] c.e.d.controller.RedisController         : 抢到锁了!
+14:29:09  INFO 21016 --- [nio-8080-exec-5] c.e.d.controller.RedisController         : 释放锁结果：[true]
+14:29:09  INFO 21016 --- [nio-8080-exec-5] c.e.d.controller.RedisController         : success
+```
+
+http://localhost:8081/redisLock
+```properties
+14:28:55  INFO 20692 --- [nio-8081-exec-4] c.e.d.controller.RedisController         : 进入方法
+14:28:55  INFO 20692 --- [nio-8081-exec-4] c.e.d.controller.RedisController         : success
+```
+
+> 8080 和 8081 同时请求, 然后一个打印抢到锁, 另外一个没有打印就成功, 因为8080拿到锁后没有过期, 而8080锁释放了, 8081就直接成功
+
+</details>
