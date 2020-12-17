@@ -1324,3 +1324,136 @@ vim /opt/zookeeper-3.6.2/conf/zoo.cfg
 - 以此类推
 - 创建节点时, 已经确定了线程的执行顺序
 
+#### 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+创建 distribute-zk-lock 演示项目
+<br><br>
+
+pom.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>distributed-lock</artifactId>
+        <groupId>com.example</groupId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>distribute-zk-lock</artifactId>
+    
+    <properties>
+        <java.version>1.8</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper</artifactId>
+            <version>3.4.14</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-recipes</artifactId>
+            <version>4.2.0</version>
+        </dependency>
+
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```
+
+com.example.distributezklock.lock.ZkLock
+```java
+package com.example.distributezklock.lock;
+
+import org.apache.zookeeper.*;
+import org.apache.zookeeper.data.Stat;
+
+import java.io.IOException;
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributezklock.lock
+ * @ClassName ZkLock
+ * @description
+ * @date created in 2020-12-17 11:21
+ * @modified by
+ */
+public class ZkLock implements AutoCloseable, Watcher {
+
+    private ZooKeeper zookeeper;
+
+    public ZkLock() throws IOException {
+        super();
+        this.zookeeper = new ZooKeeper(
+                "192.168.8.240:2181",
+                1000,
+                this
+        );
+    }
+
+    /**
+     * @param businessCode 区分不同锁
+     * @return
+     */
+    public boolean getLock(String businessCode) {
+        try {
+            Stat stat = zookeeper.exists("/" + businessCode, false);
+            if (stat != null) {
+                zookeeper.create("/" + businessCode,
+                        businessCode.getBytes(),
+                        ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                        CreateMode.PERSISTENT
+                );
+            }
+        } catch (KeeperException | InterruptedException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    @Override
+    public void close() throws Exception {
+
+    }
+
+    @Override
+    public void process(WatchedEvent watchedEvent) {
+
+    }
+}
+```
+
+</details>

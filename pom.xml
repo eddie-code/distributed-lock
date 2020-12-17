@@ -6,6 +6,7 @@
     <modules>
         <module>distribute-demo</module>
         <module>distribute-lock</module>
+        <module>distribute-zk-lock</module>
     </modules>
     <parent>
         <groupId>org.springframework.boot</groupId>
