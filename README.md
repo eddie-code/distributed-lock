@@ -1268,3 +1268,59 @@ public class SchedulerService {
 > 释放锁结果：[false] 就是没有抢到锁
 
 </details>
+
+
+### 基于Zookeeper的瞬时节点实现分布式锁
+
+[参考：深入理解Zookeeper——大牛带你飞](https://www.imooc.com/article/264139)
+
+#### Zookeeper的下载安装
+
+<details>
+<summary>点击查看</summary>
+
+```properties
+下载
+wget https://mirrors.bfsu.edu.cn/apache/zookeeper/zookeeper-3.6.2/apache-zookeeper-3.6.2-bin.tar.gz
+
+解压
+tar -zvxf apache-zookeeper-3.6.2-bin.tar.gz 
+
+改名
+mv apache-zookeeper-3.6.2-bin zookeeper-3.6.2
+
+创建数据存储文件夹
+mkdir -p zookeeper-3.6.2/data
+
+复制配置文件
+cp -R zookeeper-3.6.2/conf/zoo_sample.cfg zookeeper-3.6.2/conf/zoo.cfg
+
+修改数据存储文件夹路径
+vim /opt/zookeeper-3.6.2/conf/zoo.cfg 
+
+运行
+/opt/zookeeper-3.6.2/bin/zkServer.sh start
+
+查看状态
+/opt/zookeeper-3.6.2/bin/zkServer.sh status
+```
+
+> IDEA可视化插件：Zoolytic-Zookeeper tool
+
+</details>
+
+#### Zookeeper的观察器
+- 可设置观察器的三个方法： getData(); getChildren(); exists();
+- 节点数据发生变化, 发送给客户端
+- 观擦器只能监控一次, 再次监控需要重新设置
+
+#### Zookeeper实现分布式锁
+- 利用Zookeeper的瞬时有序节点的特性
+- 多线程并发创建瞬时节点时, 得到有序的序列
+- 序号最小的线程获得锁
+- 其他的线程则监听自己序号的前一个序号
+- 前一个线程执行完成, 删除自己序号的节点
+- 下一个序号的线程得到通知, 继续执行
+- 以此类推
+- 创建节点时, 已经确定了线程的执行顺序
+
