@@ -1,0 +1,3 @@
+logging:
+  pattern:
+    dateformat: HH:mm:ss

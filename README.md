@@ -1270,68 +1270,14 @@ public class SchedulerService {
 </details>
 
 
-### 基于Zookeeper的瞬时节点实现分布式锁
+### Zookeeper分布式锁代码实现
 
-[参考：深入理解Zookeeper——大牛带你飞](https://www.imooc.com/article/264139)
-
-#### Zookeeper的下载安装
-
-<details>
-<summary>点击查看</summary>
-
-```properties
-下载
-wget https://mirrors.bfsu.edu.cn/apache/zookeeper/zookeeper-3.6.2/apache-zookeeper-3.6.2-bin.tar.gz
-
-解压
-tar -zvxf apache-zookeeper-3.6.2-bin.tar.gz 
-
-改名
-mv apache-zookeeper-3.6.2-bin zookeeper-3.6.2
-
-创建数据存储文件夹
-mkdir -p zookeeper-3.6.2/data
-
-复制配置文件
-cp -R zookeeper-3.6.2/conf/zoo_sample.cfg zookeeper-3.6.2/conf/zoo.cfg
-
-修改数据存储文件夹路径
-vim /opt/zookeeper-3.6.2/conf/zoo.cfg 
-
-运行
-/opt/zookeeper-3.6.2/bin/zkServer.sh start
-
-查看状态
-/opt/zookeeper-3.6.2/bin/zkServer.sh status
-```
-
-> IDEA可视化插件：Zoolytic-Zookeeper tool
-
-</details>
-
-#### Zookeeper的观察器
-- 可设置观察器的三个方法： getData(); getChildren(); exists();
-- 节点数据发生变化, 发送给客户端
-- 观擦器只能监控一次, 再次监控需要重新设置
-
-#### Zookeeper实现分布式锁
-- 利用Zookeeper的瞬时有序节点的特性
-- 多线程并发创建瞬时节点时, 得到有序的序列
-- 序号最小的线程获得锁
-- 其他的线程则监听自己序号的前一个序号
-- 前一个线程执行完成, 删除自己序号的节点
-- 下一个序号的线程得到通知, 继续执行
-- 以此类推
-- 创建节点时, 已经确定了线程的执行顺序
-
-#### 代码演示
+### 代码演示
 
 <details>
 <summary>点击查看</summary>
 
 <br>
-创建 distribute-zk-lock 演示项目
-<br><br>
 
 pom.xml
 ```xml
@@ -1347,7 +1293,7 @@ pom.xml
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>distribute-zk-lock</artifactId>
-    
+
     <properties>
         <java.version>1.8</java.version>
     </properties>
@@ -1360,15 +1306,19 @@ pom.xml
         <dependency>
             <groupId>org.apache.zookeeper</groupId>
             <artifactId>zookeeper</artifactId>
-            <version>3.4.14</version>
+            <version>3.6.2</version>
         </dependency>
         <dependency>
             <groupId>org.apache.curator</groupId>
             <artifactId>curator-recipes</artifactId>
             <version>4.2.0</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>zookeeper</artifactId>
+                    <groupId>org.apache.zookeeper</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
-
-
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -1377,6 +1327,11 @@ pom.xml
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -1393,7 +1348,7 @@ pom.xml
 </project>
 ```
 
-com.example.distributezklock.lock.ZkLock
+com.example.distributezklock.lock.ZkLock (核心部分)
 ```java
 package com.example.distributezklock.lock;
 
@@ -1446,14 +1401,120 @@ public class ZkLock implements AutoCloseable, Watcher {
 
     @Override
     public void close() throws Exception {
-
     }
 
     @Override
     public void process(WatchedEvent watchedEvent) {
-
     }
 }
 ```
+
+com.example.distributezklock.ZkLockTests (单元测试, ZK是否对接成功)
+```java
+package com.example.distributezklock;
+
+import com.example.distributezklock.lock.ZkLock;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.junit4.SpringRunner;
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributezklock
+ * @ClassName ZkLockTests
+ * @description
+ * @date created in 2020-12-17 15:19
+ * @modified by
+ */
+@Slf4j
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class ZkLockTests {
+
+    /**
+     * 11:04:23  INFO 28344 --- [168.8.240:2181)] org.apache.zookeeper.ClientCnxn          : Session establishment complete on server 192.168.8.240/192.168.8.240:2181, session id = 0x101be5c5e960005, negotiated timeout = 40000
+     * 11:04:23  INFO 28344 --- [           main] c.example.distributezklock.ZkLockTests   : 获得锁的结果：[true]
+     * 11:04:23  INFO 28344 --- [           main] org.apache.zookeeper.ZooKeeper           : Session: 0x101be5c5e960005 closed
+     * 11:04:23  INFO 28344 --- [ain-EventThread] org.apache.zookeeper.ClientCnxn          : EventThread shut down for session: 0x101be5c5e960005
+     * 11:04:23  INFO 28344 --- [           main] c.example.distributezklock.lock.ZkLock   : 释放锁了!
+     * 11:04:23  INFO 28344 --- [extShutdownHook] o.s.s.concurrent.ThreadPoolTaskExecutor  : Shutting down ExecutorService 'applicationTaskExecutor'
+     * Disconnected from the target VM, address: '127.0.0.1:2814', transport: 'socket'
+     */
+    @Test
+    public void testZkLock() throws Exception {
+        ZkLock zkLock = new ZkLock();
+        boolean b = zkLock.getLock("order");
+        log.info("获得锁的结果：[{}]", b);
+        zkLock.close();
+    }
+}
+```
+
+com.example.distributezklock.controller.ZookeeperController (模拟请求)
+```java
+package com.example.distributezklock.controller;
+
+import com.example.distributezklock.lock.ZkLock;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * @author eddie.lee
+ * @ProjectName distributed-lock
+ * @Package com.example.distributezklock.controller
+ * @ClassName ZookeeperController
+ * @description
+ * @date created in 2020-12-18 11:01
+ * @modified by
+ */
+@Slf4j
+@RestController
+public class ZookeeperController {
+
+    @RequestMapping("zkLock")
+    public String zookeeperLock() {
+        log.info("进入方法");
+        try(ZkLock zkLock = new ZkLock()) {
+            if (zkLock.getLock("order")) {
+                log.info("抢到锁了! ");
+                Thread.sleep(10000);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        log.info("方法已完成");
+        return "方法已完成";
+    }
+
+}
+```
+
+PostMan请求：
+- distribute-zk-lock :8080/
+```properties
+11:09:33  INFO 24584 --- [168.8.240:2181)] org.apache.zookeeper.ClientCnxn          : Session establishment complete on server 192.168.8.240/192.168.8.240:2181, session id = 0x101be5c5e960007, negotiated timeout = 40000
+11:09:33  INFO 24584 --- [nio-8080-exec-5] c.e.d.controller.ZookeeperController     : 抢到锁了! 
+11:09:43  INFO 24584 --- [nio-8080-exec-5] org.apache.zookeeper.ZooKeeper           : Session: 0x101be5c5e960007 closed
+11:09:43  INFO 24584 --- [nio-8080-exec-5] c.example.distributezklock.lock.ZkLock   : 释放锁了! 
+11:09:43  INFO 24584 --- [nio-8080-exec-5] c.e.d.controller.ZookeeperController     : 方法已完成
+11:09:43  INFO 24584 --- [c-5-EventThread] org.apache.zookeeper.ClientCnxn          : EventThread shut down for session: 0x101be5c5e960007
+```
+
+- distribute-zk-lock-8081 :8081/
+```properties
+11:09:43  INFO 28200 --- [168.8.240:2181)] org.apache.zookeeper.ClientCnxn          : Socket connection established, initiating session, client: /192.168.8.88:3012, server: 192.168.8.240/192.168.8.240:2181
+11:09:43  INFO 28200 --- [168.8.240:2181)] org.apache.zookeeper.ClientCnxn          : Session establishment complete on server 192.168.8.240/192.168.8.240:2181, session id = 0x101be5c5e960008, negotiated timeout = 40000
+11:09:43  INFO 28200 --- [nio-8081-exec-2] c.e.d.controller.ZookeeperController     : 抢到锁了! 
+11:09:53  INFO 28200 --- [nio-8081-exec-2] org.apache.zookeeper.ZooKeeper           : Session: 0x101be5c5e960008 closed
+11:09:53  INFO 28200 --- [c-2-EventThread] org.apache.zookeeper.ClientCnxn          : EventThread shut down for session: 0x101be5c5e960008
+11:09:53  INFO 28200 --- [nio-8081-exec-2] c.example.distributezklock.lock.ZkLock   : 释放锁了! 
+11:09:53  INFO 28200 --- [nio-8081-exec-2] c.e.d.controller.ZookeeperController     : 方法已完成
+```
+
+> 可以看出 8080 抢到锁是在 11:09:33,  完成是 11:09:43. 而 8081 是在 11:09:43 抢到锁
 
 </details>
