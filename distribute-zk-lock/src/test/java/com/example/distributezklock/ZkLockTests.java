@@ -2,10 +2,17 @@ package com.example.distributezklock;
 
 import com.example.distributezklock.lock.ZkLock;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.curator.RetryPolicy;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.framework.recipes.locks.InterProcessMutex;
+import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit4.SpringRunner;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author eddie.lee
@@ -36,6 +43,28 @@ public class ZkLockTests {
         boolean b = zkLock.getLock("order");
         log.info("获得锁的结果：[{}]", b);
         zkLock.close();
+    }
+
+    @Test
+    public void tesCurator() {
+        RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+        CuratorFramework client = CuratorFrameworkFactory.newClient("192.168.8.240:2181", retryPolicy);
+        client.start();
+        InterProcessMutex lock = new InterProcessMutex(client, "/order");
+        try {
+            // 超时时间
+            if (lock.acquire(30, TimeUnit.SECONDS)) {
+                try {
+                    // do some work inside of the critical section here
+                    log.info("抢到锁了!!");
+                } finally {
+                    lock.release();
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        client.close();
     }
 
 }

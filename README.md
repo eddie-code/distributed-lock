@@ -1518,3 +1518,107 @@ PostMan请求：
 > 可以看出 8080 抢到锁是在 11:09:33,  完成是 11:09:43. 而 8081 是在 11:09:43 抢到锁
 
 </details>
+
+### 基于Zookeeper的Curator客户端实现分布式锁 (简化版)
+
+- 引入curator客户端
+- curator已经实现了分布式锁的方法
+- 直接调用即可
+
+[Curator - 官方网站](http://curator.apache.org/)
+
+#### 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+
+添加依赖
+```xml
+<dependency>
+    <groupId>org.apache.curator</groupId>
+    <artifactId>curator-recipes</artifactId>
+    <version>4.2.0</version>
+</dependency>
+```
+
+测试Curator是否能用
+```java
+@Test
+public void tesCurator() {
+    RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+    CuratorFramework client = CuratorFrameworkFactory.newClient("192.168.8.240:2181", retryPolicy);
+    client.start();
+    InterProcessMutex lock = new InterProcessMutex(client, "/order");
+    try {
+        // 超时时间
+        if (lock.acquire(30, TimeUnit.SECONDS)) {
+            try {
+                // do some work inside of the critical section here
+                log.info("抢到锁了!!");
+            } finally {
+                lock.release();
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+    client.close();
+}
+```
+
+在正式使用当中, 会把Curator设置@Bean形式
+```java
+@Bean(initMethod = "start", destroyMethod = "close")
+public CuratorFramework getCuratorFramework() {
+    RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+    CuratorFramework client = CuratorFrameworkFactory.newClient("192.168.8.240:2181", retryPolicy);
+    return client;
+}
+```
+
+控制层请求测试
+```java
+@RequestMapping("curatorLock")
+public String curatorLock() {
+    log.info("进入方法");
+    InterProcessMutex lock = new InterProcessMutex(curatorFramework, "/order");
+    try {
+        if (lock.acquire(30, TimeUnit.SECONDS)) {
+            log.info("抢到锁了!!");
+            Thread.sleep(10000);
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }finally {
+        try {
+            lock.release();
+            log.info("释放了Curator锁！");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    log.info("方法已完成");
+    return "方法已完成";
+}
+```
+
+PostMan请求：
+- distribute-zk-lock :8080/
+```properties
+22:47:56  INFO 5204 --- [nio-8080-exec-2] c.e.d.controller.ZookeeperController     : 进入方法
+22:47:56  INFO 5204 --- [nio-8080-exec-2] c.e.d.controller.ZookeeperController     : 抢到锁了!!
+22:48:06  INFO 5204 --- [nio-8080-exec-2] c.e.d.controller.ZookeeperController     : 释放了Curator锁！
+22:48:06  INFO 5204 --- [nio-8080-exec-2] c.e.d.controller.ZookeeperController     : 方法已完成
+```
+
+- distribute-zk-lock-8081 :8081/
+```properties
+22:47:57  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 进入方法
+22:48:06  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 抢到锁了!!
+22:48:16  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 释放了Curator锁！
+22:48:16  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 方法已完成
+```
+
+</details>
