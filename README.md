@@ -579,6 +579,7 @@ java.lang.Exception: 商品[100100]仅剩余[0]件, 无法购买
 > 测试后数据需要更改回来: "UPDATE `distribute`.`product` SET `count` = 1 WHERE `id` = 100100"
 
 </details>
+<br>
 
 ## distribute-lock （分布式锁）
 
@@ -705,6 +706,7 @@ public class DemoController {
 > IDEA模拟多应用启动:  右上“Edit Configurations” 复制多个Spring Boot的启动 “Program arguments: --server.port=8081”
 
 </details>
+<br>
 
 ### 数据库实现分布式锁 (悲观锁)
 
@@ -830,7 +832,7 @@ distribute-lock-8081 :8081/
 - 建议：作为锁的数据库与业务数据库分开
 
 </details>
-
+<br>
 
 ### 基于Redis的Setnx实现分布式锁
 
@@ -1268,7 +1270,7 @@ public class SchedulerService {
 > 释放锁结果：[false] 就是没有抢到锁
 
 </details>
-
+<br>
 
 ### Zookeeper分布式锁代码实现
 
@@ -1518,6 +1520,7 @@ PostMan请求：
 > 可以看出 8080 抢到锁是在 11:09:33,  完成是 11:09:43. 而 8081 是在 11:09:43 抢到锁
 
 </details>
+<br>
 
 ### 基于Zookeeper的Curator客户端实现分布式锁 (简化版)
 
@@ -1619,6 +1622,136 @@ PostMan请求：
 22:48:06  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 抢到锁了!!
 22:48:16  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 释放了Curator锁！
 22:48:16  INFO 18792 --- [nio-8081-exec-1] c.e.d.controller.ZookeeperController     : 方法已完成
+```
+
+</details>
+
+<br>
+
+### 基于Redisson实现分布式锁 (推荐使用)
+
+- 引入Redisson的Jar包
+- 进行Redisson与Redis的配置
+- 使用分布式锁
+- 通过Java API方式引入Redisson
+- Spring项目引入Redisson
+- Spring Boot项目引入Redisson
+
+[Redisson - 官方网站](https://redisson.org/)
+
+[Github.com](https://github.com/redisson/redisson)
+
+<br>
+
+#### Java API方式 - 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+
+添加依赖
+```xml
+<dependency>
+    <groupId>org.redisson</groupId>
+    <artifactId>redisson</artifactId>
+    <version>3.11.2</version>
+</dependency>
+```
+
+单元测试
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+@Slf4j
+public class ApplicationTests {
+
+    /**
+     * java api
+     */
+    @Test
+    public void testRedissonLock() {
+        // 1. Create config object
+        Config config = new Config();
+        // 2. 如果集群、哨兵模式 useClusterServers
+        config.useSingleServer().setAddress("redis://192.168.8.100:6379");
+        // Sync and Async API
+        RedissonClient redisson = Redisson.create(config);
+        // 字符串用于区分业务
+        RLock rLock = redisson.getLock("order");
+        // 设置锁过期时间, 时间超过30秒, 就会自动释放锁
+        rLock.lock(30, TimeUnit.SECONDS);
+        log.info("抢到锁了!");
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            rLock.unlock();
+            log.info("释放了RedissonLock锁！");
+        }
+    }
+
+}
+```
+
+控制层
+```java
+@Slf4j
+@RestController
+public class RedissonLockController {
+
+    @RequestMapping("redissonLock")
+    public String redissonLock() {
+        // 1. Create config object
+        Config config = new Config();
+        // 2. 如果集群、哨兵模式 useClusterServers
+        config.useSingleServer().setAddress("redis://192.168.8.100:6379");
+        // Sync and Async API
+        RedissonClient redisson = Redisson.create(config);
+        // 字符串用于区分业务
+        RLock rLock = redisson.getLock("order");
+        log.info("进入方法！");
+        // 设置锁过期时间, 时间超过30秒, 就会自动释放锁
+        rLock.lock(30, TimeUnit.SECONDS);
+        log.info("抢到锁了!");
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            rLock.unlock();
+            log.info("释放了RedissonLock锁！");
+        }
+        log.info("redissonLock() 执行完成！");
+
+        return "redissonLock() 执行完成！";
+    }
+
+}
+```
+
+PostMan请求：
+- redisson-lock :8080/
+```properties
+2020-12-21 23:44:25.212  INFO 16476 --- [nio-8080-exec-2] org.redisson.Version                     : Redisson 3.11.2
+2020-12-21 23:44:25.994  INFO 16476 --- [sson-netty-2-27] o.r.c.pool.MasterPubSubConnectionPool    : 1 connections initialized for 192.168.8.100/192.168.8.100:6379
+2020-12-21 23:44:26.000  INFO 16476 --- [sson-netty-2-19] o.r.c.pool.MasterConnectionPool          : 24 connections initialized for 192.168.8.100/192.168.8.100:6379
+2020-12-21 23:44:26.046  INFO 16476 --- [nio-8080-exec-2] c.e.r.controller.RedissonLockController  : 进入方法！
+2020-12-21 23:44:26.087  INFO 16476 --- [nio-8080-exec-2] c.e.r.controller.RedissonLockController  : 抢到锁了!
+2020-12-21 23:44:36.094  INFO 16476 --- [nio-8080-exec-2] c.e.r.controller.RedissonLockController  : 释放了RedissonLock锁！
+2020-12-21 23:44:36.094  INFO 16476 --- [nio-8080-exec-2] c.e.r.controller.RedissonLockController  : redissonLock() 执行完成！
+```
+
+- redisson-lock-8081 :8081/
+```properties
+2020-12-21 23:44:26.292  INFO 17800 --- [nio-8081-exec-2] org.redisson.Version                     : Redisson 3.11.2
+2020-12-21 23:44:27.052  INFO 17800 --- [isson-netty-2-4] o.r.c.pool.MasterPubSubConnectionPool    : 1 connections initialized for 192.168.8.100/192.168.8.100:6379
+2020-12-21 23:44:27.061  INFO 17800 --- [sson-netty-2-19] o.r.c.pool.MasterConnectionPool          : 24 connections initialized for 192.168.8.100/192.168.8.100:6379
+2020-12-21 23:44:27.102  INFO 17800 --- [nio-8081-exec-2] c.e.r.controller.RedissonLockController  : 进入方法！
+2020-12-21 23:44:36.100  INFO 17800 --- [nio-8081-exec-2] c.e.r.controller.RedissonLockController  : 抢到锁了!
+2020-12-21 23:44:46.105  INFO 17800 --- [nio-8081-exec-2] c.e.r.controller.RedissonLockController  : 释放了RedissonLock锁！
+2020-12-21 23:44:46.105  INFO 17800 --- [nio-8081-exec-2] c.e.r.controller.RedissonLockController  : redissonLock() 执行完成！
 ```
 
 </details>
