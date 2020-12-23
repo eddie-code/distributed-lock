@@ -1904,6 +1904,8 @@ public class RedissonLockController {
 ```
 </details>
 
+<br>
+
 ## 多种分布式锁实现方案, 如何选择?
 
 |方式|优点|缺点|
@@ -1916,3 +1918,11 @@ public class RedissonLockController {
 
 - 不推荐自己编写的分布式锁
 - 推荐Redisson和Curator实现的分布式锁
+
+<br>
+
+[个人博客](https://blog.eddilee.cn/)
+
+<br>
+
+[代码下载](https://github.com/eddie-code/distributed-lock)
