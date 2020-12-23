@@ -1902,6 +1902,17 @@ public class RedissonLockController {
     }
 }
 ```
-
-
 </details>
+
+## 多种分布式锁实现方案, 如何选择?
+
+|方式|优点|缺点|
+|-------|-------|-------|
+|数据库|实现简单、易于理解|对数据库压力大|
+|Redis| 易于理解|自己实现、不支阻塞|
+|Zookeeper|支持阻塞|需要理解Zookeeper、程序复杂|
+|Curator|提供锁的方法|依赖Zookeeper、强一致|
+|Redisson|提供锁的方法, 可阻塞|
+
+- 不推荐自己编写的分布式锁
+- 推荐Redisson和Curator实现的分布式锁
