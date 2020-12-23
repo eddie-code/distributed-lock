@@ -1753,5 +1753,155 @@ PostMan请求：
 2020-12-21 23:44:46.105  INFO 17800 --- [nio-8081-exec-2] c.e.r.controller.RedissonLockController  : 释放了RedissonLock锁！
 2020-12-21 23:44:46.105  INFO 17800 --- [nio-8081-exec-2] c.e.r.controller.RedissonLockController  : redissonLock() 执行完成！
 ```
+</details>
+
+<br>
+
+#### Spring xml方式 - 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+
+Maven
+```xml
+<dependency>
+    <groupId>org.redisson</groupId>
+    <artifactId>redisson</artifactId>
+    <version>3.11.2</version>
+</dependency>
+```
+
+src/main/resources/redisson.xml
+```xml
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:redisson="http://redisson.org/schema/redisson"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://www.springframework.org/schema/context
+       http://www.springframework.org/schema/context/spring-context.xsd
+       http://redisson.org/schema/redisson
+       http://redisson.org/schema/redisson/redisson.xsd
+">
+
+    <redisson:client>
+        <redisson:single-server address="redis://192.168.8.100:6379"/>
+    </redisson:client>
+</beans>
+```
+
+com.example.redissonlock.Application
+```java
+@SpringBootApplication
+@ImportResource("classpath*:redisson.xml")
+public class Application {
+
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+
+}
+```
+
+com.example.redissonlock.controller.RedissonLockController
+```java
+@Slf4j
+@RestController
+public class RedissonLockController {
+
+    @Autowired
+    private RedissonClient redisson;
+
+    @RequestMapping("redissonLock")
+    public String redissonLock() {
+        // 字符串用于区分业务
+        RLock rLock = redisson.getLock("order");
+        log.info("进入方法！");
+        // 设置锁过期时间, 时间超过30秒, 就会自动释放锁
+        rLock.lock(30, TimeUnit.SECONDS);
+        log.info("抢到锁了!");
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            rLock.unlock();
+            log.info("释放了RedissonLock锁！");
+        }
+        log.info("redissonLock() 执行完成！");
+
+        return "redissonLock() 执行完成！";
+    }
+
+}
+```
+
+</details>
+
+<br>
+
+#### SpringBoot方式 - 代码演示
+
+<details>
+<summary>点击查看</summary>
+
+<br>
+
+Maven
+```xml
+<dependency>
+    <groupId>org.redisson</groupId>
+    <artifactId>redisson-spring-boot-starter</artifactId>
+    <version>3.11.2</version>
+</dependency>
+```
+
+src/main/resources/application.yml
+```yaml
+logging:
+  pattern:
+    dateformat: HH:mm:ss
+spring:
+  redis:
+    host: 192.168.8.100
+    port: 6379
+```
+
+com.example.redissonlock.controller.RedissonLockController
+```java
+@Slf4j
+@RestController
+public class RedissonLockController {
+
+    @Autowired
+    private RedissonClient redisson;
+
+    @RequestMapping("redissonLock")
+    public String redissonLock() {
+        // 字符串用于区分业务
+        RLock rLock = redisson.getLock("order");
+        log.info("进入方法！");
+        // 设置锁过期时间, 时间超过30秒, 就会自动释放锁
+        rLock.lock(30, TimeUnit.SECONDS);
+        log.info("抢到锁了!");
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            rLock.unlock();
+            log.info("释放了RedissonLock锁！");
+        }
+        log.info("redissonLock() 执行完成！");
+
+        return "redissonLock() 执行完成！";
+    }
+}
+```
+
 
 </details>

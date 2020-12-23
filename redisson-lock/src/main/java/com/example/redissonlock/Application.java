@@ -2,6 +2,7 @@ package com.example.redissonlock;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ImportResource;
 
 /**
  * @author eddie.lee
@@ -13,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @modified by
  */
 @SpringBootApplication
+//@ImportResource("classpath*:redisson.xml")
 public class Application {
 
     public static void main(String[] args) {
