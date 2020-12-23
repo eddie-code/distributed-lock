@@ -5,6 +5,7 @@ import org.redisson.Redisson;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,14 +24,11 @@ import java.util.concurrent.TimeUnit;
 @RestController
 public class RedissonLockController {
 
+    @Autowired
+    private RedissonClient redisson;
+
     @RequestMapping("redissonLock")
     public String redissonLock() {
-        // 1. Create config object
-        Config config = new Config();
-        // 2. 如果集群、哨兵模式 useClusterServers
-        config.useSingleServer().setAddress("redis://192.168.8.100:6379");
-        // Sync and Async API
-        RedissonClient redisson = Redisson.create(config);
         // 字符串用于区分业务
         RLock rLock = redisson.getLock("order");
         log.info("进入方法！");
